@@ -1,0 +1,46 @@
+name: sync upstream
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-customize
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out customize
+        uses: actions/checkout@v6
+        with:
+          ref: customize
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch upstream main
+        run: |
+          git remote add upstream https://github.com/infiniflow/ragflow.git
+          git fetch upstream main --prune
+
+      - name: Merge upstream main
+        run: |
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "customize already contains upstream/main."
+            exit 0
+          fi
+
+          git merge --no-ff upstream/main -m "chore: sync upstream main"
+
+      - name: Push customize
+        run: git push origin HEAD:customize
