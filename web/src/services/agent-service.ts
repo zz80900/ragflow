@@ -121,6 +121,28 @@ const methods = {
     url: api.createAgentSession,
     method: 'post',
   },
+  getAgentWeCom: {
+    url: (config: { agentId: string }) => api.getAgentWeCom(config.agentId),
+    method: 'get',
+  },
+  saveAgentWeCom: {
+    url: (config: { agentId: string }) => api.saveAgentWeCom(config.agentId),
+    method: 'put',
+  },
+  deleteAgentWeCom: {
+    url: (config: { agentId: string }) => api.deleteAgentWeCom(config.agentId),
+    method: 'delete',
+  },
+  testAgentWeComConnection: {
+    url: (config: { agentId: string }) =>
+      api.testAgentWeComConnection(config.agentId),
+    method: 'post',
+  },
+  testAgentWeComMessage: {
+    url: (config: { agentId: string }) =>
+      api.testAgentWeComMessage(config.agentId),
+    method: 'post',
+  },
 } as const;
 
 const agentService = registerNextServer<keyof typeof methods>(methods);

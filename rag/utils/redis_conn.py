@@ -168,7 +168,13 @@ class RedisDB:
         }
 
     def is_alive(self):
-        return self.REDIS is not None
+        if self.REDIS is None:
+            return False
+        try:
+            return bool(self.REDIS.ping())
+        except Exception as e:
+            logging.warning(f"RedisDB.is_alive got exception: {str(e)}")
+            return False
 
     def exist(self, k):
         if not self.REDIS:

@@ -190,6 +190,9 @@ def _get_or_create_secret_key():
     import logging
 
     generated_key = secrets.token_hex(32)
+    if not REDIS_CONN.is_alive():
+        logging.warning("SECURITY WARNING: Using auto-generated SECRET_KEY without Redis persistence.")
+        return generated_key
     secret_key = REDIS_CONN.get_or_create_secret_key("ragflow:system:secret_key", generated_key)
     if generated_key == secret_key:
         logging.warning("SECURITY WARNING: Using auto-generated SECRET_KEY.")

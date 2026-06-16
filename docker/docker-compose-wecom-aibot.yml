@@ -1,0 +1,27 @@
+services:
+  ragflow-cpu:
+    image: ${RAGFLOW_CUSTOM_IMAGE:?Set RAGFLOW_CUSTOM_IMAGE to the custom RAGFlow image that contains the WeCom AIBot extension code.}
+
+  ragflow-gpu:
+    image: ${RAGFLOW_CUSTOM_IMAGE:?Set RAGFLOW_CUSTOM_IMAGE to the custom RAGFlow image that contains the WeCom AIBot extension code.}
+
+  ragflow-wecom-aibot:
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    profiles:
+      - wecom-aibot
+    image: ${RAGFLOW_CUSTOM_IMAGE:?Set RAGFLOW_CUSTOM_IMAGE to the custom RAGFlow image that contains the WeCom AIBot extension code.}
+    entrypoint: ["/ragflow/docker/wecom-aibot/entrypoint.sh"]
+    env_file:
+      - .env
+      - .env.wecom-aibot
+    volumes:
+      - ./ragflow-logs:/ragflow/logs
+      - ./service_conf.yaml.template:/ragflow/conf/service_conf.yaml.template
+      - ./wecom-aibot/entrypoint.sh:/ragflow/docker/wecom-aibot/entrypoint.sh:ro
+    networks:
+      - ragflow
+    restart: unless-stopped

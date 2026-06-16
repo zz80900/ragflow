@@ -16,6 +16,8 @@
   Sets up environment for RAGFlow and its dependencies.
 - **docker-compose-base.yml**  
   Sets up environment for RAGFlow's dependencies: Elasticsearch/[Infinity](https://github.com/infiniflow/infinity), MySQL, MinIO, and Redis.
+- **docker-compose-wecom-aibot.yml**
+  Adds the Enterprise WeChat AIBot runner service and custom image overrides. See [wecom-aibot/README.md](./wecom-aibot/README.md).
 
 > [!CAUTION]
 > We do not actively maintain **docker-compose-CN-oc9.yml**, **docker-compose-macos.yml**, so use them at your own risk. However, you are welcome to file a pull request to improve any of them.

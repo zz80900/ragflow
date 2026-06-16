@@ -76,7 +76,45 @@ export const enum AgentApiAction {
   FetchSharedAgent = 'fetchSharedAgent',
   FetchAgentTags = 'fetchAgentTags',
   UpdateAgentTags = 'updateAgentTags',
+  FetchAgentWeCom = 'fetchAgentWeCom',
+  SaveAgentWeCom = 'saveAgentWeCom',
+  DeleteAgentWeCom = 'deleteAgentWeCom',
+  TestAgentWeComConnection = 'testAgentWeComConnection',
+  TestAgentWeComMessage = 'testAgentWeComMessage',
 }
+
+export interface IAgentWeComConfig {
+  agent_id?: string;
+  bot_id: string;
+  secret?: string;
+  has_secret?: boolean;
+  enabled: boolean;
+  status: string;
+  last_connected_at?: number | null;
+  last_error?: string | null;
+}
+
+export interface IAgentWeComTestMessageResult {
+  reply?: string;
+  frame_count?: number;
+  session_id?: string | null;
+  finish?: boolean;
+  stream_id?: string;
+  image_urls?: string[];
+  stored_references?: string[];
+  public_urls?: string[];
+  uploaded_media_ids?: string[];
+  rejected_media_reason?: string;
+  media_failures?: string[];
+}
+
+const emptyAgentWeComConfig: IAgentWeComConfig = {
+  bot_id: '',
+  secret: '',
+  has_secret: false,
+  enabled: false,
+  status: 'unbound',
+};
 
 export const useFetchAgentTemplates = () => {
   const { data } = useQuery<IFlowTemplate[]>({
@@ -1011,6 +1049,161 @@ export function useDeleteAgentSession() {
   });
 
   return { data, loading, deleteAgentSession: mutateAsync };
+}
+
+export function useFetchAgentWeCom(agentId: string) {
+  const {
+    data,
+    isFetching: loading,
+    refetch,
+  } = useQuery<IAgentWeComConfig>({
+    queryKey: [AgentApiAction.FetchAgentWeCom, agentId],
+    enabled: !!agentId,
+    initialData: emptyAgentWeComConfig,
+    queryFn: async () => {
+      if (!agentId) {
+        return emptyAgentWeComConfig;
+      }
+      const { data } = await agentService.getAgentWeCom(
+        { agentId, params: {} },
+        true,
+      );
+      return data?.data ?? emptyAgentWeComConfig;
+    },
+  });
+
+  return { data, loading, refetch };
+}
+
+export function useSaveAgentWeCom(agentId: string) {
+  const queryClient = useQueryClient();
+  const { isPending: loading, mutateAsync } = useMutation({
+    mutationKey: [AgentApiAction.SaveAgentWeCom, agentId],
+    mutationFn: async (payload: {
+      bot_id: string;
+      secret?: string;
+      enabled: boolean;
+    }) => {
+      if (!agentId) {
+        throw new Error('agentId is required.');
+      }
+      const { data } = await agentService.saveAgentWeCom(
+        {
+          agentId,
+          data: payload,
+        },
+        true,
+      );
+      if (data?.code === 0) {
+        message.success('success');
+        queryClient.invalidateQueries({
+          queryKey: [AgentApiAction.FetchAgentWeCom, agentId],
+        });
+      } else {
+        message.error(data?.message || data?.data || 'Save failed');
+      }
+      return data?.data;
+    },
+  });
+
+  return { loading, saveAgentWeCom: mutateAsync };
+}
+
+export function useDeleteAgentWeCom(agentId: string) {
+  const queryClient = useQueryClient();
+  const { isPending: loading, mutateAsync } = useMutation({
+    mutationKey: [AgentApiAction.DeleteAgentWeCom, agentId],
+    mutationFn: async () => {
+      if (!agentId) {
+        throw new Error('agentId is required.');
+      }
+      const { data } = await agentService.deleteAgentWeCom(
+        {
+          agentId,
+          data: {},
+        },
+        true,
+      );
+      if (data?.code === 0) {
+        message.success('success');
+        queryClient.invalidateQueries({
+          queryKey: [AgentApiAction.FetchAgentWeCom, agentId],
+        });
+      } else {
+        message.error(data?.message || data?.data || 'Delete failed');
+      }
+      return data?.data;
+    },
+  });
+
+  return { loading, deleteAgentWeCom: mutateAsync };
+}
+
+export function useTestAgentWeComConnection(agentId: string) {
+  const { isPending: loading, mutateAsync } = useMutation({
+    mutationKey: [AgentApiAction.TestAgentWeComConnection, agentId],
+    mutationFn: async () => {
+      if (!agentId) {
+        throw new Error('agentId is required.');
+      }
+      const { data } = await agentService.testAgentWeComConnection(
+        { agentId },
+        true,
+      );
+      if (data?.code === 0) {
+        message.success('success');
+      } else {
+        message.error(data?.message || data?.data || 'Test failed');
+      }
+      return data?.data;
+    },
+  });
+
+  return { loading, testAgentWeComConnection: mutateAsync };
+}
+
+export function useTestAgentWeComMessage(agentId: string) {
+  const { isPending: loading, mutateAsync } = useMutation<
+    IAgentWeComTestMessageResult | undefined,
+    unknown,
+    {
+      userid: string;
+      chatid: string;
+      chattype: string;
+      content?: string;
+      media?: {
+        type?: string;
+        filename?: string;
+        content_type?: string;
+        size?: number;
+        url?: string;
+        download_url?: string;
+        aeskey?: string;
+        data_base64?: string;
+        content_base64?: string;
+      };
+    }
+  >({
+    mutationKey: [AgentApiAction.TestAgentWeComMessage, agentId],
+    mutationFn: async (payload) => {
+      if (!agentId) {
+        throw new Error('agentId is required.');
+      }
+      const { data } = await agentService.testAgentWeComMessage(
+        {
+          agentId,
+          data: payload,
+        },
+        true,
+      );
+      if (data?.code !== 0) {
+        message.error(data?.message || data?.data || 'Test failed');
+      }
+      return data?.data;
+    },
+  });
+
+  return { loading, testAgentWeComMessage: mutateAsync };
 }
 
 export function useFetchSessionManually() {

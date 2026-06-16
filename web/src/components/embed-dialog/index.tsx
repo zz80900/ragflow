@@ -285,17 +285,29 @@ window.addEventListener('message',e=>{
     }
 
     await onSaveWidgetSettings({
-      enableStreaming: values.enableStreaming,
-      muteWidget: values.muteWidget,
-      widgetTitle: values.widgetTitle,
-      widgetSubtitle: values.widgetSubtitle,
-      widgetFooterText: values.widgetFooterText,
-      widgetFooterLink: values.widgetFooterLink,
-      widgetAccentColor: values.widgetAccentColor,
-      widgetBackgroundColor: values.widgetBackgroundColor,
-      widgetTextColor: values.widgetTextColor,
-      widgetHeaderTextColor: values.widgetHeaderTextColor,
-      widgetFooterTextColor: values.widgetFooterTextColor,
+      enableStreaming:
+        values.enableStreaming ?? defaultWidgetSettings.enableStreaming,
+      muteWidget: values.muteWidget ?? defaultWidgetSettings.muteWidget,
+      widgetTitle: values.widgetTitle ?? defaultWidgetSettings.widgetTitle,
+      widgetSubtitle:
+        values.widgetSubtitle ?? defaultWidgetSettings.widgetSubtitle,
+      widgetFooterText:
+        values.widgetFooterText ?? defaultWidgetSettings.widgetFooterText,
+      widgetFooterLink:
+        values.widgetFooterLink ?? defaultWidgetSettings.widgetFooterLink,
+      widgetAccentColor:
+        values.widgetAccentColor ?? defaultWidgetSettings.widgetAccentColor,
+      widgetBackgroundColor:
+        values.widgetBackgroundColor ??
+        defaultWidgetSettings.widgetBackgroundColor,
+      widgetTextColor:
+        values.widgetTextColor ?? defaultWidgetSettings.widgetTextColor,
+      widgetHeaderTextColor:
+        values.widgetHeaderTextColor ??
+        defaultWidgetSettings.widgetHeaderTextColor,
+      widgetFooterTextColor:
+        values.widgetFooterTextColor ??
+        defaultWidgetSettings.widgetFooterTextColor,
     });
   }, [onSaveWidgetSettings, values]);
 

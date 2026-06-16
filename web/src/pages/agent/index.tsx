@@ -27,6 +27,7 @@ import { useNavigatePage } from '@/hooks/logic-hooks/navigate-hooks';
 import { useSetAgent } from '@/hooks/use-agent-request';
 import { ReactFlowProvider } from '@xyflow/react';
 import {
+  Bot,
   ChevronDown,
   CirclePlay,
   Compass,
@@ -44,6 +45,7 @@ import { useParams } from 'react-router';
 import AgentCanvas from './canvas';
 import { DropdownProvider } from './canvas/context';
 import { PublishConfirmDialog } from './components/publish-confirm-dialog';
+import { WeComSheet } from './components/wecom';
 import { Operator } from './constant';
 import { GlobalParamSheet } from './gobal-variable-sheet';
 import { useBuildDslData } from './hooks/use-build-dsl';
@@ -160,6 +162,12 @@ export default function Agent() {
     visible: globalParamSheetVisible,
     showModal: showGlobalParamSheet,
     hideModal: hideGlobalParamSheet,
+  } = useSetModalState();
+
+  const {
+    visible: weComSheetVisible,
+    showModal: showWeComSheet,
+    hideModal: hideWeComSheet,
   } = useSetModalState();
 
   const {
@@ -319,6 +327,15 @@ export default function Agent() {
                 <MessageSquareCode />
                 {t('flow.conversationVariable')}
               </AgentDropdownMenuItem>
+              {isConversationMode && !isPipeline && (
+                <>
+                  <DropdownMenuSeparator />
+                  <AgentDropdownMenuItem onClick={showWeComSheet}>
+                    <Bot />
+                    企业微信
+                  </AgentDropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <AgentDropdownMenuItem onClick={showVersionDialog}>
                 <History />
@@ -411,6 +428,9 @@ export default function Agent() {
           data={{}}
           hideModal={hideGlobalParamSheet}
         ></GlobalParamSheet>
+      )}
+      {weComSheetVisible && (
+        <WeComSheet agentId={id!} hideModal={hideWeComSheet}></WeComSheet>
       )}
       {webhookTestSheetVisible && (
         <WebhookSheet hideModal={hideWebhookTestSheet}></WebhookSheet>

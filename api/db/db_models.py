@@ -1073,6 +1073,25 @@ class UserCanvas(DataBaseModel):
         db_table = "user_canvas"
 
 
+class WeComAIBotBinding(DataBaseModel):
+    id = CharField(max_length=32, primary_key=True)
+    tenant_id = CharField(max_length=32, null=False, index=True)
+    agent_id = CharField(max_length=32, null=False, index=False)
+    bot_id = CharField(max_length=128, null=False, index=False)
+    secret_ciphertext = TextField(null=False, help_text="Encrypted WeCom AIBot long-connection secret")
+    enabled = BooleanField(null=False, default=False, index=True)
+    status = CharField(max_length=32, null=False, default="disabled", index=True)
+    last_connected_at = BigIntegerField(null=True, index=True)
+    last_error = TextField(null=True)
+
+    class Meta:
+        db_table = "wecom_aibot_bindings"
+        indexes = (
+            (("agent_id",), True),
+            (("bot_id",), True),
+        )
+
+
 class CanvasTemplate(DataBaseModel):
     id = CharField(max_length=32, primary_key=True)
     avatar = TextField(null=True, help_text="avatar base64 string")
@@ -1443,6 +1462,28 @@ def alter_db_rename_column(migrator, table_name, old_column_name, new_column_nam
         # logging.critical(f"Failed to rename {settings.DATABASE_TYPE.upper()}.{table_name} column {old_column_name} to {new_column_name}, error: {ex}")
         pass
 
+
+def alter_db_add_unique_index(table_name, columns, index_name):
+    try:
+        target_columns = tuple(columns)
+        for index in DB.get_indexes(table_name):
+            if index.unique and tuple(index.columns) == target_columns:
+                return
+
+        quote = '"' if settings.DATABASE_TYPE.upper() == "POSTGRES" else "`"
+        quoted_table = f"{quote}{table_name}{quote}"
+        quoted_index = f"{quote}{index_name}{quote}"
+        quoted_columns = ", ".join(f"{quote}{column}{quote}" for column in columns)
+        DB.execute_sql(f"CREATE UNIQUE INDEX {quoted_index} ON {quoted_table} ({quoted_columns})")
+    except (OperationalError, ProgrammingError) as ex:
+        msg = str(ex).lower()
+        if "duplicate" in msg or "already exists" in msg or "1061" in msg:
+            return
+        logging.critical(f"Failed to add unique index {index_name} on {settings.DATABASE_TYPE.upper()}.{table_name}, error: {ex}")
+    except Exception as ex:
+        logging.critical(f"Failed to add unique index {index_name} on {settings.DATABASE_TYPE.upper()}.{table_name}, error: {ex}")
+
+
 def migrate_add_unique_email(migrator):
     """Deduplicates user emails and add UNIQUE constraint to email column (idempotent)"""
     # step 0: check existing index state on user.email and prepare for unique constraint
@@ -1728,6 +1769,8 @@ def migrate_db():
     alter_db_column_type(migrator, "document", "size", BigIntegerField(default=0, index=True))
     alter_db_column_type(migrator, "file", "size", BigIntegerField(default=0, index=True))
     alter_db_add_column(migrator, "tenant", "ocr_id", CharField(max_length=128, null=True, help_text="default ocr model ID", index=True))
+    alter_db_add_unique_index("wecom_aibot_bindings", ("agent_id",), "idx_wecom_aibot_bindings_agent_id")
+    alter_db_add_unique_index("wecom_aibot_bindings", ("bot_id",), "idx_wecom_aibot_bindings_bot_id")
     # Drop both the explicit "idx_*" name from later migrations AND the
     # Peewee-auto-derived "<table-as-classname>_<col1>_<col2>" name from the
     # original TenantModelInstance definition (commit dc4b82523). Databases

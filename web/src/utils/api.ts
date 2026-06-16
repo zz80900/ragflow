@@ -264,6 +264,16 @@ export default {
   downloadFile: `${restAPIv1}/agents/download`,
   testWebhook: (id: string) => `${restAPIv1}/agents/${id}/webhook/test`,
   fetchWebhookTrace: (id: string) => `${restAPIv1}/agents/${id}/webhook/logs`,
+  getAgentWeCom: (id: string) =>
+    `${restAPIv1}/agents/${encodeURIComponent(id)}/wecom`,
+  saveAgentWeCom: (id: string) =>
+    `${restAPIv1}/agents/${encodeURIComponent(id)}/wecom`,
+  deleteAgentWeCom: (id: string) =>
+    `${restAPIv1}/agents/${encodeURIComponent(id)}/wecom`,
+  testAgentWeComConnection: (id: string) =>
+    `${restAPIv1}/agents/${encodeURIComponent(id)}/wecom/test-connection`,
+  testAgentWeComMessage: (id: string) =>
+    `${restAPIv1}/agents/${encodeURIComponent(id)}/wecom/test-message`,
 
   // explore
 
