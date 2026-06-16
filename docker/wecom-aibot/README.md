@@ -73,37 +73,29 @@ overlay Dockerfile installs the WebSocket dependency and copies only the WeCom
 AIBot REST API, service modules, runner, database model, and runner entrypoint.
 It does not rebuild frontend assets.
 
-## Build Private Release Images
+## Build Release Images
 
-The release workflow builds the WeCom AIBot image in two modes:
+The release workflow runs when a `v*.*.*` tag is pushed. It builds the full
+RAGFlow image first, then builds the WeCom AIBot runner image from that exact
+image. This keeps the frontend, API, database model, service modules, and runner
+code aligned.
 
-- Official release tags build and push `infiniflow/ragflow-wecom-aibot:<tag>`
-  next to the normal `infiniflow/ragflow:<tag>` image.
-- The `customize` branch builds private custom images in GitHub Container
-  Registry:
-  - `ghcr.io/<owner>/ragflow:<tag>`
-  - `ghcr.io/<owner>/ragflow-wecom-aibot:<tag>`
+Release images are pushed to GitHub Container Registry:
 
-The private build first builds the full RAGFlow image from the current branch,
-then builds the WeCom AIBot runner image from that exact image. This keeps the
-frontend, API, database model, service modules, and runner code aligned.
+- `ghcr.io/<owner>/ragflow:<tag>`
+- `ghcr.io/<owner>/ragflow-wecom-aibot:<tag>`
 
-Trigger a private build from GitHub CLI:
+Create and push a release tag from GitHub CLI or Git:
 
 ```bash
-gh workflow run release.yml \
-  --repo <owner>/ragflow \
-  --ref customize \
-  -f private_image_tag=customize
+git tag v1.0.0
+git push github-fork v1.0.0
 ```
-
-If the workflow is not available on the default branch yet, push to the
-`customize` branch; the branch push also triggers the private image build.
 
 Use the runner image as the compose custom image:
 
 ```bash
-export RAGFLOW_CUSTOM_IMAGE=ghcr.io/<owner>/ragflow-wecom-aibot:customize
+export RAGFLOW_CUSTOM_IMAGE=ghcr.io/<owner>/ragflow-wecom-aibot:v1.0.0
 ```
 
 ## Configure Compose
