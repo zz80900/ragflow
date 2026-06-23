@@ -67,11 +67,22 @@ def chunks_format(reference):
 
 
 def message_fit_in(msg, max_length=4000):
+    if max_length <= 0:
+        max_length = 4000
+
+    def message_content(m):
+        content = m.get("content")
+        if content is not None:
+            return str(content)
+        if m.get("tool_calls"):
+            return json.dumps(m["tool_calls"], ensure_ascii=False)
+        return ""
+
     def count():
         nonlocal msg
         tks_cnts = []
         for m in msg:
-            tks_cnts.append({"role": m["role"], "count": num_tokens_from_string(m["content"])})
+            tks_cnts.append({"role": m["role"], "count": num_tokens_from_string(message_content(m))})
         total = 0
         for m in tks_cnts:
             total += m["count"]
@@ -93,8 +104,8 @@ def message_fit_in(msg, max_length=4000):
     if c < max_length:
         return c, msg
 
-    ll = num_tokens_from_string(msg_[0]["content"])
-    ll2 = num_tokens_from_string(msg_[-1]["content"])
+    ll = num_tokens_from_string(message_content(msg_[0]))
+    ll2 = num_tokens_from_string(message_content(msg_[-1]))
     total = ll + ll2
     if total <= 0:
         logging.debug(
@@ -108,20 +119,20 @@ def message_fit_in(msg, max_length=4000):
         return 0, msg
 
     if len(msg) == 1:
-        msg[0]["content"] = trim_content(msg[0]["content"], max_length)
+        msg[0]["content"] = trim_content(message_content(msg[0]), max_length)
         return count(), msg
 
     if ll / total > 0.8:
         preserved_last = min(ll2, max_length)
-        msg[-1]["content"] = trim_content(msg_[-1]["content"], preserved_last)
+        msg[-1]["content"] = trim_content(message_content(msg_[-1]), preserved_last)
         remaining = max(0, max_length - preserved_last)
-        msg[0]["content"] = trim_content(msg_[0]["content"], remaining)
+        msg[0]["content"] = trim_content(message_content(msg_[0]), remaining)
         return count(), msg
 
     preserved_system = min(ll, max_length)
-    msg[0]["content"] = trim_content(msg_[0]["content"], preserved_system)
+    msg[0]["content"] = trim_content(message_content(msg_[0]), preserved_system)
     remaining = max(0, max_length - preserved_system)
-    msg[-1]["content"] = trim_content(msg_[-1]["content"], remaining)
+    msg[-1]["content"] = trim_content(message_content(msg_[-1]), remaining)
     return count(), msg
 
 

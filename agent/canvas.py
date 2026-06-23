@@ -733,6 +733,7 @@ class Canvas(Graph):
         return convs
 
     def add_user_input(self, question):
+        self.globals["sys.query"] = question or ""
         self.history.append(("user", question))
         self.globals["sys.history"].append(f"{self.history[-1][0]}: {self.history[-1][1]}")
 

@@ -16,6 +16,7 @@
 import asyncio
 from functools import partial
 import json
+import logging
 import os
 import re
 from abc import ABC
@@ -42,11 +43,11 @@ class RetrievalParam(ToolParamBase):
     def __init__(self):
         self.meta:ToolMeta = {
             "name": "search_my_dateset",
-            "description": "This tool can be utilized for relevant content searching in the datasets.",
+            "description": "Search the selected dataset for content relevant to the user's current question.",
             "parameters": {
                 "query": {
                     "type": "string",
-                    "description": "The keywords to search the dataset. The keywords should be the most important words/terms(includes synonyms) from the original request.",
+                    "description": "A concise search query derived from the user's current question. Keep the user's core entities, standards, product names, people, places, codes, or document titles. Do not replace the user's question with generic domain examples or node descriptions.",
                     "default": "",
                     "required": True
                 }
@@ -54,7 +55,7 @@ class RetrievalParam(ToolParamBase):
         }
         super().__init__()
         self.function_name = "search_my_dateset"
-        self.description = "This tool can be utilized for relevant content searching in the datasets."
+        self.description = "Search the selected dataset for content relevant to the user's current question."
         self.similarity_threshold = 0.2
         self.keywords_similarity_weight = 0.5
         self.top_n = 8
@@ -86,10 +87,98 @@ class RetrievalParam(ToolParamBase):
 class Retrieval(ToolBase, ABC):
     component_name = "Retrieval"
 
+    _GENERIC_QUERY_TOKENS = {
+        "企业知识库",
+        "项目计划",
+        "部门规范",
+        "流程模板",
+        "培训考核",
+        "造价",
+        "关键任务",
+        "测试资料",
+    }
+    _LOW_VALUE_QUERY_TOKENS = {
+        "一下",
+        "什么",
+        "关于",
+        "查询",
+        "知识",
+        "知识库",
+        "要求",
+        "相关",
+        "信息",
+        "哪里",
+        "在哪",
+        "地址",
+        "网址",
+        "登录",
+        "入口",
+    }
+
     @property
     def _dataset_ids(self):
         """Get dataset IDs with backward compatibility for kb_ids."""
         return self._param.dataset_ids or getattr(self._param, "kb_ids", None) or []
+
+    def _normalize_query_text(self, query_text: str) -> str:
+        query = (query_text or "").strip()
+        sys_query = (self._canvas.get_sys_query() or "").strip()
+        if not sys_query:
+            return query
+
+        if not query:
+            return sys_query
+
+        query_compact = re.sub(r"\s+", " ", query)
+        sys_query_compact = re.sub(r"\s+", " ", sys_query)
+        if query_compact == sys_query_compact:
+            return query
+
+        if self._is_unrelated_tool_query(query_compact, sys_query_compact):
+            logging.warning(
+                "[Retrieval] Replace unrelated tool query with sys.query. tool_query=%r sys_query=%r",
+                query_compact,
+                sys_query_compact,
+            )
+            return sys_query
+
+        generic_token_hits = sum(1 for token in self._GENERIC_QUERY_TOKENS if token in query_compact)
+        looks_like_generic_prompt = generic_token_hits >= 2
+        looks_like_real_question = any(ch in query for ch in "?:？：") or len(query_compact) <= 24
+        sys_query_is_specific = len(sys_query_compact) >= 4
+
+        if looks_like_generic_prompt and sys_query_is_specific and not looks_like_real_question:
+            logging.warning(
+                "[Retrieval] Replace suspicious tool query with sys.query. tool_query=%r sys.query=%r",
+                query_compact,
+                sys_query_compact,
+            )
+            return sys_query
+
+        return query
+
+    @classmethod
+    def _is_unrelated_tool_query(cls, query: str, sys_query: str) -> bool:
+        query_terms = cls._meaningful_query_terms(query)
+        sys_query_terms = cls._meaningful_query_terms(sys_query)
+        if len(query_terms) < 2 or len(sys_query_terms) < 2:
+            return False
+        return not bool(query_terms & sys_query_terms)
+
+    @classmethod
+    def _meaningful_query_terms(cls, text: str) -> set[str]:
+        terms = {
+            token
+            for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]+", (text or "").lower())
+            if len(token) >= 2
+        }
+        for segment in re.findall(r"[\u4e00-\u9fff]+", text or ""):
+            if len(segment) == 1:
+                continue
+            if len(segment) <= 8:
+                terms.add(segment)
+            terms.update(segment[index : index + 2] for index in range(len(segment) - 1))
+        return {term for term in terms if term not in cls._LOW_VALUE_QUERY_TOKENS}
 
     async def _retrieve_kb(self, query_text: str):
         kb_ids: list[str] = []
@@ -132,6 +221,7 @@ class Retrieval(ToolBase, ABC):
         vars = self.get_input_elements_from_text(query_text)
         vars = {k: o["value"] for k, o in vars.items()}
         query = self.string_format(query_text, vars)
+        query = self._normalize_query_text(query)
 
         doc_ids = []
         if self._param.meta_data_filter != {}:
@@ -281,7 +371,8 @@ class Retrieval(ToolBase, ABC):
         user_id: str = self._param.user_id if hasattr(self._param, "user_id") else None
         memory_list = MemoryService.get_by_ids(memory_ids)
         if not memory_list:
-            raise Exception("No memory is selected.")
+            self.set_output("formalized_content", self._param.empty_response)
+            return ""
 
         embd_names = list({memory.embd_id for memory in memory_list})
         assert len(embd_names) == 1, "Memory use different embedding models."
@@ -289,6 +380,7 @@ class Retrieval(ToolBase, ABC):
         vars = self.get_input_elements_from_text(query_text)
         vars = {k: o["value"] for k, o in vars.items()}
         query = self.string_format(query_text, vars)
+        query = self._normalize_query_text(query)
         # query message
         filter_dict: dict = {"memory_id": memory_ids}
         if user_id:

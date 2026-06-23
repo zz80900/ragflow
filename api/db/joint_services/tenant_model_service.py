@@ -26,6 +26,8 @@ from api.db.services.tenant_model_service import TenantModelService
 
 logger = logging.getLogger(__name__)
 
+_LEGACY_OPENAI_API_SUFFIX = "___OpenAI-API"
+
 
 def _factory_model_types(llm: dict) -> list[str]:
     model_type = llm.get("model_type")
@@ -49,6 +51,52 @@ def _decode_api_key_config(raw_api_key: str) -> tuple[str, bool | None, str | No
         return parsed.get("api_key", ""), is_tools, None
 
     return parsed.get("api_key", raw_api_key), is_tools, raw_api_key
+
+
+def _model_name_candidates(model_name: str, provider_name: str) -> list[str]:
+    candidates = [model_name]
+    if provider_name == "OpenAI-API-Compatible" and model_name.endswith(_LEGACY_OPENAI_API_SUFFIX):
+        candidates.append(model_name[: -len(_LEGACY_OPENAI_API_SUFFIX)])
+    return list(dict.fromkeys([candidate for candidate in candidates if candidate]))
+
+
+def _get_model_obj(provider_id: str, instance_id: str, model_type: str, model_names: list[str]):
+    for model_name in model_names:
+        model_obj = TenantModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(
+            provider_id,
+            instance_id,
+            model_type,
+            model_name,
+        )
+        if model_obj:
+            return model_obj
+    return None
+
+
+def _resolve_provider_instance(
+    provider_obj,
+    instance_name: str,
+    model_type: str,
+    model_names: list[str],
+    allow_instance_fallback: bool,
+):
+    instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
+    if instance_obj or not allow_instance_fallback:
+        return instance_obj, None
+
+    active_instances = [
+        instance
+        for instance in TenantModelInstanceService.get_all_by_provider_id(provider_obj.id)
+        if instance.status == ActiveStatusEnum.ACTIVE.value
+    ]
+    for instance in active_instances:
+        model_obj = _get_model_obj(provider_obj.id, instance.id, model_type, model_names)
+        if model_obj:
+            return instance, model_obj
+
+    if len(active_instances) == 1:
+        return active_instances[0], None
+    return None, None
 
 
 def get_first_provider_model_name(tenant_id: str, provider_name: str, model_type: str | enum.Enum) -> str | None:
@@ -179,7 +227,9 @@ def split_model_name(model_name: str):
 
 
 def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum, model_name: str):
+    model_name_parts = model_name.split("@")
     pure_model_name, instance_name, provider_name = split_model_name(model_name)
+    model_name_candidates = _model_name_candidates(pure_model_name, provider_name)
     model_type_val = model_type if isinstance(model_type, str) else model_type.value
     # Builtin embedding model
     compose_profiles = os.getenv("COMPOSE_PROFILES", "")
@@ -203,10 +253,17 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
     provider_obj = TenantModelProviderService.get_by_tenant_id_and_provider_name(tenant_id, provider_name)
     if not provider_obj:
         raise LookupError(f"Provider {provider_name} not found for model {model_name}.")
-    instance_obj = TenantModelInstanceService.get_by_provider_id_and_instance_name(provider_obj.id, instance_name)
+    instance_obj, model_obj = _resolve_provider_instance(
+        provider_obj,
+        instance_name,
+        model_type_val,
+        model_name_candidates,
+        allow_instance_fallback=len(model_name_parts) == 2 or instance_name == "default",
+    )
     if not instance_obj:
         raise LookupError(f"Instance {instance_name} not found for model {model_name}.")
-    model_obj = TenantModelService.get_by_provider_id_and_instance_id_and_model_type_and_model_name(provider_obj.id, instance_obj.id, model_type_val, pure_model_name)
+    if not model_obj:
+        model_obj = _get_model_obj(provider_obj.id, instance_obj.id, model_type_val, model_name_candidates)
 
     api_key, is_tool, api_key_payload = _decode_api_key_config(instance_obj.api_key)
     extra_fields = json.loads(instance_obj.extra) if instance_obj.extra else {}
@@ -238,7 +295,7 @@ def get_model_config_from_provider_instance(tenant_id, model_type: str|enum.Enum
         fac_list = [f for f in settings.FACTORY_LLM_INFOS if f["name"] == target_factory_name]
         if not fac_list:
             raise LookupError(f"Model provider config not found: {provider_name}")
-        llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] == pure_model_name]
+        llm_list = [llm for llm in fac_list[0]["llm"] if llm["llm_name"] in model_name_candidates]
         if not llm_list:
             raise LookupError(f"Model config not found: {model_name}")
         llm_info = llm_list[0]

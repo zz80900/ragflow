@@ -21,6 +21,7 @@ Uses only the standard library so it can be imported from both ``api/`` and
 
 import ipaddress
 import logging
+import os
 import socket
 import threading
 from contextlib import contextmanager
@@ -91,6 +92,50 @@ def pin_dns_global(hostname: str, ip: str):
 
 
 _DEFAULT_ALLOWED_SCHEMES: frozenset[str] = frozenset({"http", "https"})
+_ALLOW_PRIVATE_HOSTS_ENV = "RAGFLOW_SSRF_ALLOWED_PRIVATE_HOSTS"
+_ALLOW_PRIVATE_CIDRS_ENV = "RAGFLOW_SSRF_ALLOWED_PRIVATE_CIDRS"
+
+
+def _split_env_list(env_name: str) -> list[str]:
+    value = os.environ.get(env_name, "")
+    return [item.strip() for item in value.replace(";", ",").split(",") if item.strip()]
+
+
+def _normalize_hostname(hostname: str) -> str:
+    return hostname.strip().lower().rstrip(".")
+
+
+def _allowed_private_hosts() -> frozenset[str]:
+    return frozenset(_normalize_hostname(hostname) for hostname in _split_env_list(_ALLOW_PRIVATE_HOSTS_ENV))
+
+
+def _allowed_private_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    networks = []
+    for cidr in _split_env_list(_ALLOW_PRIVATE_CIDRS_ENV):
+        try:
+            networks.append(ipaddress.ip_network(cidr, strict=False))
+        except ValueError:
+            logger.warning("Ignoring invalid SSRF private CIDR allowlist entry: %r", cidr)
+    return networks
+
+
+def _is_allowlisted_private_address(
+    hostname: str,
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address,
+) -> bool:
+    eff_ip = _effective_ip(ip)
+    if eff_ip.is_global:
+        return True
+    if eff_ip.is_loopback or eff_ip.is_link_local or eff_ip.is_multicast or eff_ip.is_reserved or eff_ip.is_unspecified:
+        return False
+    if not eff_ip.is_private:
+        return False
+
+    normalized_hostname = _normalize_hostname(hostname)
+    if normalized_hostname in _allowed_private_hosts():
+        return True
+
+    return any(eff_ip.version == network.version and eff_ip in network for network in _allowed_private_networks())
 
 
 def _effective_ip(
@@ -120,9 +165,10 @@ def assert_url_is_safe(
     1. Scheme is in *allowed_schemes*.
     2. Hostname is present.
     3. **Every** address returned by ``getaddrinfo`` is globally routable
-       (``ip.is_global``).  This is an allowlist approach: it catches private,
-       loopback, link-local, reserved, multicast, and all other
-       special-purpose ranges rather than individual deny-list flags.
+       (``ip.is_global``), unless it is an explicitly allowlisted private
+       host/CIDR via ``RAGFLOW_SSRF_ALLOWED_PRIVATE_HOSTS`` or
+       ``RAGFLOW_SSRF_ALLOWED_PRIVATE_CIDRS``.  Loopback, link-local,
+       reserved, multicast, and other special-purpose ranges remain blocked.
        IPv4-mapped IPv6 addresses (e.g. ``::ffff:127.0.0.1``) are normalised
        to their IPv4 form via :func:`_effective_ip` before the check.
 
@@ -156,6 +202,15 @@ def assert_url_is_safe(
         raw_ip = ipaddress.ip_address(sockaddr[0])
         eff_ip = _effective_ip(raw_ip)
         if not eff_ip.is_global:
+            if _is_allowlisted_private_address(hostname, raw_ip):
+                logger.info(
+                    "SSRF guard allowed configured private URL: hostname=%r resolved_address=%s",
+                    hostname,
+                    raw_ip,
+                )
+                if resolved_ip is None:
+                    resolved_ip = str(raw_ip)
+                continue
             logger.warning(
                 "SSRF guard blocked URL: hostname=%r resolved to non-public address=%s",
                 hostname,
@@ -195,6 +250,15 @@ def assert_host_is_safe(host: str) -> str:
         raw_ip = ipaddress.ip_address(sockaddr[0])
         eff_ip = _effective_ip(raw_ip)
         if not eff_ip.is_global:
+            if _is_allowlisted_private_address(host, raw_ip):
+                logger.info(
+                    "SSRF guard allowed configured private host: host=%r resolved_address=%s",
+                    host,
+                    raw_ip,
+                )
+                if resolved_ip is None:
+                    resolved_ip = str(raw_ip)
+                continue
             logger.warning(
                 "SSRF guard blocked host: host=%r resolved to non-public address=%s",
                 host,

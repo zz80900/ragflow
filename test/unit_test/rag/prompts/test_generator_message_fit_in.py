@@ -149,3 +149,30 @@ def test_message_fit_in_clamps_dominant_last_message_to_budget(monkeypatch):
     assert used_tokens == 8
     assert trimmed[0]["content"] == ""
     assert trimmed[-1]["content"] == "abcdefgh"
+
+
+@pytest.mark.p1
+def test_message_fit_in_handles_tool_call_messages_without_content(monkeypatch):
+    generator = _load_generator_module(monkeypatch)
+    monkeypatch.setattr(generator, "num_tokens_from_string", lambda text: len(text))
+    monkeypatch.setattr(generator, "encoder", _CharEncoder())
+
+    messages = [
+        {"role": "system", "content": "system"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "search", "arguments": "{\"query\":\"pci dss pin\"}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": "result"},
+    ]
+
+    used_tokens, trimmed = generator.message_fit_in(messages, max_length=200)
+
+    assert used_tokens > 0
+    assert trimmed == messages

@@ -110,10 +110,6 @@ def extract_outgoing_media(content: str, image_urls: list[str] | None = None) ->
         source = f"/api/v1/documents/images/{match.group(1).rstrip('.,)')}"
         _append_media(media, seen, OutgoingMedia(media_type="image", source=source, filename=_filename_from_source(source)))
 
-    for match in re.finditer(r"\b([A-Za-z0-9][A-Za-z0-9_.]*-[A-Za-z0-9][A-Za-z0-9_./\-]{8,})\b", content or ""):
-        source = match.group(1)
-        _append_media(media, seen, OutgoingMedia(media_type="image", source=source, filename=_filename_from_source(source)))
-
     return media
 
 

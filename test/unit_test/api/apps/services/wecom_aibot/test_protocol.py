@@ -214,6 +214,24 @@ def test_extract_event_handles_enter_conversation():
     assert event.is_enter_conversation is True
 
 
+def test_extract_event_normalizes_object_event_type():
+    event = extract_event(
+        {
+            "cmd": "aibot_event_callback",
+            "headers": {"req_id": "req-1"},
+            "body": {
+                "event_type": {"type": "enter-conversation"},
+                "aibotid": "bot-1",
+                "from": {"userid": "u-1"},
+            },
+        }
+    )
+
+    assert event is not None
+    assert event.event_type == "enter-conversation"
+    assert event.is_enter_conversation is True
+
+
 def test_parse_sse_message_ignores_done_and_parses_json():
     assert parse_sse_message("data:[DONE]\n\n") is None
     payload = {"event": "message", "data": {"content": "hi"}}

@@ -40,15 +40,13 @@ def _prepare_service_package_imports() -> None:
 _prepare_service_package_imports()
 
 from api.apps.services.wecom_aibot.config import WeComAIBotConfig
-from api.apps.services.wecom_aibot.binding_store import WeComAIBotBindingService
-from api.apps.services.wecom_aibot.service import WeComAIBotService
-from api.db.db_models import init_database_tables
-from common import settings
 from common.log_utils import init_root_logger
 
 
 def _count_enabled_bindings_for_startup_check() -> int | None:
     try:
+        from api.apps.services.wecom_aibot.binding_store import WeComAIBotBindingService
+
         return len(WeComAIBotBindingService.list_enabled(include_secret=False))
     except Exception as exc:
         logging.warning("WeCom AIBot binding lookup skipped during startup check: %s", exc)
@@ -72,6 +70,10 @@ async def _main() -> None:
             "unknown" if binding_count is None else binding_count,
         )
         return
+
+    from api.apps.services.wecom_aibot.service import WeComAIBotService
+    from api.db.db_models import init_database_tables
+    from common import settings
 
     settings.init_settings()
     init_database_tables()

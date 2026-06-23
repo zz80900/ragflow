@@ -53,25 +53,20 @@ Run from the repository root:
 docker build --platform linux/amd64 -t ragflow-wecom-aibot:local .
 ```
 
-### Lightweight Overlay Image
+### Local Image Build
 
-Use this for backend and runner smoke deployment when the base RAGFlow image is
-already available and only the WeCom AIBot backend code needs to be overlaid.
+Use this for backend and runner smoke deployment when the local RAGFlow code and
+the WeCom AIBot backend code need to be built together.
 
 Run from the repository root:
 
 ```bash
-docker build \
-  -f docker/wecom-aibot/Dockerfile \
-  --build-arg RAGFLOW_BASE_IMAGE=infiniflow/ragflow:v0.26.0 \
-  -t ragflow-wecom-aibot:local \
-  .
+bash docker/build-local-images.sh local
 ```
 
-Set `RAGFLOW_BASE_IMAGE` to the exact image tag used by your deployment. The
-overlay Dockerfile installs the WebSocket dependency and copies only the WeCom
-AIBot REST API, service modules, runner, database model, and runner entrypoint.
-It does not rebuild frontend assets.
+If the tag argument is omitted, the script prompts for it interactively. The
+image namespace is fixed to `xgd`; the script builds `xgd/ragflow:<tag>` first,
+then builds `xgd/ragflow-wecom-aibot:<tag>` from that local image.
 
 ## Build Release Images
 
@@ -109,13 +104,13 @@ cp docker/.env.wecom-aibot.example docker/.env.wecom-aibot
 Expose the custom image name for compose interpolation:
 
 ```bash
-export RAGFLOW_CUSTOM_IMAGE=ragflow-wecom-aibot:local
+export RAGFLOW_CUSTOM_IMAGE=xgd/ragflow-wecom-aibot:local
 ```
 
 You can also add this value to `docker/.env`:
 
 ```env
-RAGFLOW_CUSTOM_IMAGE=ragflow-wecom-aibot:local
+RAGFLOW_CUSTOM_IMAGE=xgd/ragflow-wecom-aibot:local
 ```
 
 Edit `docker/.env.wecom-aibot`:
@@ -123,11 +118,24 @@ Edit `docker/.env.wecom-aibot`:
 ```env
 WECOM_AIBOT_ENABLED=true
 WECOM_AIBOT_WS_URL=wss://openws.work.weixin.qq.com
+WECOM_AIBOT_AGGREGATION_INTERVAL_MS=500
+WECOM_AIBOT_SEND_INTERVAL_MS=1000
 WECOM_AIBOT_STREAM_INTERVAL_MS=2000
-WECOM_AIBOT_CONVERSATION_INTERVAL_MS=2000
-WECOM_AIBOT_MAX_STREAM_SECONDS=600
 WECOM_AIBOT_HEARTBEAT_SECONDS=30
+WECOM_AIBOT_SESSION_TTL_SECONDS=2592000
+WECOM_AIBOT_DEDUP_TTL_SECONDS=86400
 WECOM_AIBOT_LOCK_TTL_SECONDS=60
+WECOM_AIBOT_CONVERSATION_INTERVAL_MS=2000
+WECOM_AIBOT_WORKER_COUNT=4
+WECOM_AIBOT_INBOUND_QUEUE_SIZE=128
+WECOM_AIBOT_QUEUE_WAIT_TIMEOUT_SECONDS=15
+WECOM_AIBOT_PER_CONVERSATION_MAX_INFLIGHT=1
+WECOM_AIBOT_MAX_STREAM_SECONDS=600
+WECOM_AIBOT_RECONNECT_INITIAL_SECONDS=1
+WECOM_AIBOT_RECONNECT_MAX_SECONDS=30
+WECOM_AIBOT_TEST_CONNECTION_TIMEOUT_SECONDS=10
+WECOM_AIBOT_BINDING_REFRESH_SECONDS=30
+WECOM_AIBOT_GROUP_CONTEXT_MODE=shared
 WECOM_AIBOT_WELCOME_MESSAGE=Hello, I am the assistant.
 WECOM_AIBOT_PUBLIC_BASE_URL=
 WECOM_AIBOT_MEDIA_PUBLIC_URL_TTL_SECONDS=300
@@ -139,11 +147,50 @@ WECOM_AIBOT_MEDIA_TEMP_CACHE_SECONDS=259200
 WECOM_AIBOT_MEDIA_PUBLIC_TOKEN_SECRET=
 ```
 
-Important media settings:
+Important runtime orchestration settings:
+
+- `WECOM_AIBOT_WORKER_COUNT`: processor worker count for accepted callbacks.
+- `WECOM_AIBOT_INBOUND_QUEUE_SIZE`: maximum queued callbacks before the runner
+  returns a busy or retry-later terminal response.
+- `WECOM_AIBOT_QUEUE_WAIT_TIMEOUT_SECONDS`: maximum time a callback may wait in
+  the inbound queue before it times out deterministically.
+- `WECOM_AIBOT_PER_CONVERSATION_MAX_INFLIGHT`: maximum in-flight callbacks for
+  one conversation. `1` keeps per-conversation processing ordered.
+- `WECOM_AIBOT_AGGREGATION_INTERVAL_MS`: cadence for updating in-memory stream
+  state from Agent output. `500` keeps content aggregation responsive.
+- `WECOM_AIBOT_SEND_INTERVAL_MS`: minimum per-conversation WebSocket send
+  interval. `1000` keeps Enterprise WeChat frame pacing conservative.
+- `WECOM_AIBOT_STREAM_INTERVAL_MS` and
+  `WECOM_AIBOT_CONVERSATION_INTERVAL_MS`: legacy names remain compatible.
+  They are used as fallbacks for `WECOM_AIBOT_AGGREGATION_INTERVAL_MS` and
+  `WECOM_AIBOT_SEND_INTERVAL_MS` when the new variables are unset.
+
+Important connection and session settings:
 
 - `WECOM_AIBOT_ENABLED`: set to `true` only when the runner should connect.
+- `WECOM_AIBOT_WS_URL`: Enterprise WeChat AIBot WebSocket endpoint.
+- `WECOM_AIBOT_HEARTBEAT_SECONDS`: heartbeat and Redis lock renewal cadence.
+- `WECOM_AIBOT_SESSION_TTL_SECONDS`: Redis session mapping TTL.
+- `WECOM_AIBOT_DEDUP_TTL_SECONDS`: message de-duplication TTL.
+- `WECOM_AIBOT_LOCK_TTL_SECONDS`: Redis single-runner lock TTL per bot.
+- `WECOM_AIBOT_MAX_STREAM_SECONDS`: maximum time to wait for one streaming
+  reply before sending a terminal timeout response.
+- `WECOM_AIBOT_RECONNECT_INITIAL_SECONDS` and
+  `WECOM_AIBOT_RECONNECT_MAX_SECONDS`: reconnect backoff bounds after WebSocket
+  failures.
+- `WECOM_AIBOT_TEST_CONNECTION_TIMEOUT_SECONDS`: timeout for one-shot
+  connection tests.
+- `WECOM_AIBOT_BINDING_REFRESH_SECONDS`: interval for refreshing enabled bot
+  bindings.
+- `WECOM_AIBOT_GROUP_CONTEXT_MODE`: `shared` uses one group conversation
+  context; any other value separates group context by user.
+- `WECOM_AIBOT_WELCOME_MESSAGE`: text returned for welcome events.
+
+Important media settings:
+
 - `WECOM_AIBOT_PUBLIC_BASE_URL`: HTTPS base URL that Enterprise WeChat can
   reach. Leave it empty when no public route is available.
+- `WECOM_AIBOT_MEDIA_PUBLIC_URL_TTL_SECONDS`: signed public media URL lifetime.
 - `WECOM_AIBOT_MEDIA_REPLY_MODE`: `auto`, `public_url`, or `upload`. `auto`
   tries public URL delivery first and falls back to temporary media upload.
 - `WECOM_AIBOT_MEDIA_PUBLIC_TOKEN_SECRET`: optional signing secret for the
@@ -151,6 +198,7 @@ Important media settings:
 - `WECOM_AIBOT_MEDIA_MAX_DOWNLOAD_BYTES`,
   `WECOM_AIBOT_MEDIA_DOWNLOAD_TIMEOUT_SECONDS`, and
   `WECOM_AIBOT_MEDIA_ALLOWED_TYPES`: inbound media safety limits.
+- `WECOM_AIBOT_MEDIA_TEMP_CACHE_SECONDS`: temporary media cache TTL.
 
 Configure BotID and Secret through the agent management page or binding API.
 They are encrypted in RAGFlow storage and must not be logged or committed.
@@ -163,7 +211,7 @@ CPU deployment:
 
 ```bash
 cd docker
-export RAGFLOW_CUSTOM_IMAGE=ragflow-wecom-aibot:local
+export RAGFLOW_CUSTOM_IMAGE=xgd/ragflow-wecom-aibot:local
 docker compose \
   -f docker-compose.yml \
   -f docker-compose-wecom-aibot.yml \
@@ -177,7 +225,7 @@ GPU deployment:
 
 ```bash
 cd docker
-export RAGFLOW_CUSTOM_IMAGE=ragflow-wecom-aibot:local
+export RAGFLOW_CUSTOM_IMAGE=xgd/ragflow-wecom-aibot:local
 docker compose \
   -f docker-compose.yml \
   -f docker-compose-wecom-aibot.yml \
@@ -248,18 +296,14 @@ After code changes, rebuild the image:
 
 ```bash
 cd /path/to/ragflow
-docker build \
-  -f docker/wecom-aibot/Dockerfile \
-  --build-arg RAGFLOW_BASE_IMAGE=infiniflow/ragflow:v0.26.0 \
-  -t ragflow-wecom-aibot:local \
-  .
+bash docker/build-local-images.sh local
 ```
 
 Recreate both the main API service and the runner:
 
 ```bash
 cd docker
-export RAGFLOW_CUSTOM_IMAGE=ragflow-wecom-aibot:local
+export RAGFLOW_CUSTOM_IMAGE=xgd/ragflow-wecom-aibot:local
 docker compose \
   -f docker-compose.yml \
   -f docker-compose-wecom-aibot.yml \

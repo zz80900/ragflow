@@ -21,15 +21,15 @@ import uuid
 
 import valkey as redis
 from common.decorator import singleton
-from common import settings
+from common.config_utils import decrypt_database_config, get_base_config
 from valkey.lock import Lock
 
 REDIS = {}
 try:
-    REDIS = settings.decrypt_database_config(name="redis")
+    REDIS = decrypt_database_config(name="redis")
 except Exception:
     try:
-        REDIS = settings.get_base_config("redis", {})
+        REDIS = get_base_config("redis", {})
     except Exception:
         REDIS = {}
 

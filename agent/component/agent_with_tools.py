@@ -114,8 +114,9 @@ class Agent(LLM, ToolBase):
             self.chat_mdl.bind_tools(self.toolcall_session, self.tool_meta)
 
     def _fit_messages(self, prompt: str, msg: list[dict]) -> list[dict]:
+        messages = msg if msg and msg[0].get("role") == "system" else [{"role": "system", "content": prompt}, *msg]
         _, fitted_messages = message_fit_in(
-            [{"role": "system", "content": prompt}, *msg],
+            messages,
             int(self.chat_mdl.max_length * 0.97),
         )
         return fitted_messages
@@ -130,6 +131,80 @@ class Agent(LLM, ToolBase):
         ans = re.sub(r"^.*</think>", "", ans, flags=re.DOTALL)
         ans = re.sub(r"^.*```json", "", ans, flags=re.DOTALL)
         return re.sub(r"```\n*$", "", ans, flags=re.DOTALL)
+
+    def _retrieval_only_tools(self) -> list[tuple[str, object]]:
+        retrieval_tools = []
+        for tool_name, tool_obj in self.tools.items():
+            if getattr(tool_obj, "component_name", "") != "Retrieval":
+                return []
+            retrieval_tools.append((tool_name, tool_obj))
+        return retrieval_tools
+
+    async def _prefetch_retrieval_tools_async(self, user_query: str) -> bool:
+        retrieval_tools = self._retrieval_only_tools()
+        if not retrieval_tools or not user_query:
+            return False
+
+        prefetched = False
+        for tool_name, tool_obj in retrieval_tools:
+            if self.check_if_canceled("Agent retrieval prefetch"):
+                return prefetched
+            if tool_obj.output("formalized_content"):
+                continue
+
+            arguments = {"query": user_query}
+            st = timer()
+            try:
+                result = await tool_obj.invoke_async(**arguments)
+            except Exception as exc:
+                logging.warning(
+                    "[Agent] retrieval prefetch skipped tool=%s query=%r error=%s",
+                    tool_name,
+                    user_query,
+                    exc,
+                )
+                continue
+            elapsed = timer() - st
+            self.callback(tool_name, arguments, result, elapsed_time=elapsed)
+            content = tool_obj.output("formalized_content")
+            if content:
+                logging.info(
+                    "[Agent] retrieval prefetch ready tool=%s query=%r content_len=%s",
+                    tool_name,
+                    user_query,
+                    len(content),
+                )
+                prefetched = True
+
+        return prefetched
+
+    def _build_prefetched_history(self, history: list[dict], user_query: str) -> list[dict]:
+        hist = deepcopy(history)
+        contexts = []
+        for tool_name, tool_obj in self._retrieval_only_tools():
+            content = tool_obj.output("formalized_content")
+            if content in (None, ""):
+                continue
+            contexts.append(f"[{tool_name}] query: {user_query}\n{content}")
+
+        if not contexts:
+            return hist
+        logging.info(
+            "[Agent] retrieval prefetch context user_query=%r context_count=%s",
+            user_query,
+            len(contexts),
+        )
+        hist.append({
+            "role": "user",
+            "content": (
+                "已先检索可用知识库/记忆系统。请回答用户当前问题，不要回答其他历史问题；"
+                "只能基于以下检索结果作答，禁止编造检索结果之外的人名、技术主题、语言或事实；"
+                "如果检索结果没有充分依据，请明确说明当前知识库未检索到充分依据。\n\n"
+                f"用户当前问题：{user_query}\n\n"
+                + "\n\n".join(contexts)
+            ),
+        })
+        return hist
 
     def _load_tool_obj(self, cpn: dict) -> object:
         from agent.component import component_class
@@ -268,6 +343,12 @@ class Agent(LLM, ToolBase):
             msg = [*msg[:-1], {"role": "user", "content": user_request}]
 
         msg = self._fit_messages(prompt, msg)
+
+        user_query = self._canvas.get_sys_query().strip()
+        prefetched = await self._prefetch_retrieval_tools_async(user_query)
+        if prefetched:
+            msg = self._build_prefetched_history(msg, user_query)
+            msg = self._fit_messages(prompt, msg)
 
         need2cite = self._param.cite and self._canvas.get_reference()["chunks"] and self._id.find("-->") < 0
         cited = False

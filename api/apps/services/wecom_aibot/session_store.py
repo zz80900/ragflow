@@ -57,6 +57,22 @@ class WeComAIBotSessionStore:
         if ragflow_session_id and REDIS_CONN.is_alive():
             REDIS_CONN.set(self._redis_key(conversation_key), ragflow_session_id, self.ttl_seconds)
 
+    def clear(self, conversation_key: str) -> bool:
+        if not REDIS_CONN.is_alive():
+            return False
+        return bool(REDIS_CONN.delete(self._redis_key(conversation_key)))
+
+    def clear_for_conversation(
+        self,
+        agent_id: str,
+        bot_id: str,
+        chattype: str,
+        chatid: str,
+        userid: str,
+    ) -> bool:
+        conversation_key = self._conversation_key(agent_id, bot_id, chattype, chatid, userid)
+        return self.clear(conversation_key)
+
     def _conversation_key(self, agent_id: str, bot_id: str, chattype: str, chatid: str, userid: str) -> str:
         if chattype == "group" and self.group_context_mode == "shared":
             raw = f"{agent_id}:{bot_id}:group:{chatid}"

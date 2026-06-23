@@ -32,6 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # selenium:      libatk-bridge2.0-0                       chrome-linux64-121-0-6167-85
 # Building C extensions: libpython3-dev libgtk-4-1 libnss3 xdg-utils libgbm-dev
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ragflow_apt_lists,target=/var/lib/apt/lists,sharing=locked \
     apt update && \
     apt --no-install-recommends install -y ca-certificates; \
     if [ "$NEED_MIRROR" == "1" ]; then \
@@ -43,28 +44,33 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     chmod 1777 /tmp && \
     apt update && \
     apt install -y \
-    libglib2.0-0 libglx-mesa0 libgl1 pkg-config libgdiplus default-jdk libatk-bridge2.0-0 libgtk-4-1 libnss3 xdg-utils libjemalloc-dev gnupg unzip curl wget git vim less ghostscript pandoc texlive texlive-latex-extra texlive-xetex texlive-lang-chinese fonts-freefont-ttf fonts-noto-cjk postgresql-client && \
-    rm -rf /var/lib/apt/lists/*
+    libglib2.0-0 libglx-mesa0 libgl1 pkg-config libgdiplus default-jdk libatk-bridge2.0-0 libgtk-4-1 libnss3 xdg-utils libjemalloc-dev gnupg unzip curl wget git vim less ghostscript pandoc texlive texlive-latex-extra texlive-xetex texlive-lang-chinese fonts-freefont-ttf fonts-noto-cjk postgresql-client
 
 # Download resource from GitHub to /usr/share/infinity
 RUN mkdir -p /usr/share/infinity/resource && \
+    resource_repos=("https://github.com/infiniflow/resource.git"); \
     if [ "$NEED_MIRROR" == "1" ]; then \
-        git clone --depth 1 --single-branch https://gitee.com/infiniflow/resource /tmp/resource; \
-    else \
-        git clone --depth 1 --single-branch https://github.com/infiniflow/resource.git /tmp/resource; \
-    fi && \
+        resource_repos=("https://gitee.com/infiniflow/resource" "${resource_repos[@]}"); \
+    fi; \
+    for resource_repo in "${resource_repos[@]}"; do \
+        if git clone --depth 1 --single-branch "$resource_repo" /tmp/resource; then \
+            break; \
+        fi; \
+        rm -rf /tmp/resource; \
+    done && \
+    test -d /tmp/resource/.git && \
     cp -r /tmp/resource/* /usr/share/infinity/resource && \
     rm -rf /tmp/resource
 
 ARG NGINX_VERSION=1.31.0-1~noble
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ragflow_apt_lists,target=/var/lib/apt/lists,sharing=locked \
     mkdir -p /etc/apt/keyrings && \
     curl --retry 5 --retry-delay 2 --retry-all-errors -fsSL https://nginx.org/keys/nginx_signing.key | gpg --dearmor -o /etc/apt/keyrings/nginx-archive-keyring.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nginx-archive-keyring.gpg] https://nginx.org/packages/mainline/ubuntu/ noble nginx" > /etc/apt/sources.list.d/nginx.list && \
     apt -o Acquire::Retries=5 update && \
     apt -o Acquire::Retries=5 install -y nginx=${NGINX_VERSION} && \
-    apt-mark hold nginx && \
-    rm -rf /var/lib/apt/lists/*
+    apt-mark hold nginx
 
 # Install uv
 RUN --mount=type=bind,from=infiniflow/ragflow_deps:latest,source=/,target=/deps \
@@ -89,17 +95,18 @@ ENV PATH=/root/.local/bin:$PATH
 
 # nodejs 12.22 on Ubuntu 22.04 is too old
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ragflow_apt_lists,target=/var/lib/apt/lists,sharing=locked \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
     apt purge -y nodejs npm && \
     apt autoremove -y && \
     apt update && \
-    apt install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
+    apt install -y nodejs
 
 # Add msssql ODBC driver
 # macOS ARM64 environment, install msodbcsql18.
 # general x86_64 environment, install msodbcsql17.
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ragflow_apt_lists,target=/var/lib/apt/lists,sharing=locked \
     curl https://packages.microsoft.com/keys/microsoft.asc | apt-key add - && \
     curl https://packages.microsoft.com/config/ubuntu/22.04/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
     apt update && \
@@ -110,8 +117,7 @@ RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
     else \
         # x86_64 or others \
         ACCEPT_EULA=Y apt install -y unixodbc-dev msodbcsql17; \
-    fi && \
-    rm -rf /var/lib/apt/lists/* || \
+    fi || \
     { echo "Failed to install ODBC driver"; exit 1; }
 
 
@@ -143,9 +149,9 @@ WORKDIR /ragflow
 # Install build-only dependencies for compiling Python C extensions.
 # These are not inherited from base to keep the production image smaller.
 RUN --mount=type=cache,id=ragflow_apt,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=ragflow_apt_lists,target=/var/lib/apt/lists,sharing=locked \
     apt update && \
-    apt install -y build-essential libpython3-dev libicu-dev libgbm-dev && \
-    rm -rf /var/lib/apt/lists/*
+    apt install -y build-essential libpython3-dev libicu-dev libgbm-dev
 
 # install dependencies from uv.lock file
 COPY pyproject.toml uv.lock ./

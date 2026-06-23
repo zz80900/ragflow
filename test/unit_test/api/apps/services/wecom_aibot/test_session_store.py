@@ -6,6 +6,7 @@ class FakeRedisConn:
     def __init__(self, value=None):
         self.value = value
         self.set_calls = []
+        self.delete_calls = []
 
     def is_alive(self):
         return True
@@ -16,6 +17,10 @@ class FakeRedisConn:
     def set(self, key, value, exp=3600):
         self.set_calls.append((key, value, exp))
         return True
+
+    def delete(self, key):
+        self.delete_calls.append(key)
+        return 1
 
 
 def test_group_shared_session_uses_chat_as_user_and_prefixes_sender(monkeypatch):
@@ -74,3 +79,21 @@ def test_save_writes_session_with_ttl(monkeypatch):
     store.save("conversation-key", None)
 
     assert redis.set_calls == [("wecom:aibot:session:conversation-key", "session-1", 60)]
+
+
+def test_clear_for_conversation_deletes_session_key(monkeypatch):
+    redis = FakeRedisConn()
+    monkeypatch.setattr(session_store_module, "REDIS_CONN", redis)
+    store = WeComAIBotSessionStore(ttl_seconds=60, group_context_mode="shared")
+
+    cleared = store.clear_for_conversation(
+        agent_id="agent-1",
+        bot_id="bot-1",
+        chattype="group",
+        chatid="chat-1",
+        userid="user-1",
+    )
+
+    assert cleared is True
+    assert len(redis.delete_calls) == 1
+    assert redis.delete_calls[0].startswith("wecom:aibot:session:")

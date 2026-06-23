@@ -73,7 +73,7 @@ class WeComIncomingEvent:
 
     @property
     def is_enter_conversation(self) -> bool:
-        event_type = self.event_type.lower().replace("-", "_")
+        event_type = _string_value(self.event_type, "event_type", "event", "type", "name").lower().replace("-", "_")
         return event_type in {
             "enter_chat",
             "enter_conversation",
@@ -255,10 +255,15 @@ def extract_event(payload: dict[str, Any]) -> WeComIncomingEvent | None:
     body = payload.get("body") or {}
     sender = body.get("from") or {}
     userid = sender.get("userid") or sender.get("user_id") or ""
+    event_type = (
+        _string_value(body.get("event_type"), "event_type", "event", "type", "name")
+        or _string_value(body.get("event"), "event_type", "event", "type", "name")
+        or _string_value(body.get("type"), "event_type", "event", "type", "name")
+    )
 
     return WeComIncomingEvent(
         req_id=headers.get("req_id") or "",
-        event_type=body.get("event_type") or body.get("event") or body.get("type") or "",
+        event_type=event_type,
         aibotid=body.get("aibotid") or body.get("bot_id") or "",
         userid=userid,
         chattype=body.get("chattype") or "single",
@@ -278,6 +283,17 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _string_value(value: Any, *nested_keys: str) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in nested_keys:
+            nested = _string_value(value.get(key), *nested_keys)
+            if nested:
+                return nested
+    return ""
 
 
 def dumps_frame(frame: dict[str, Any]) -> str:
